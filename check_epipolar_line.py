@@ -5,48 +5,16 @@ import matplotlib.pyplot as plt
 
 
 ## TODO: this code expects images to be undistorted and rectified as of now, add option to undistort and rectify the images
-left = cv2.imread(
-    "/home/sanchit/Workspace/clutterbot/habitat_small_baseline/bot_data/left/camera_0_frame_1707214782.0682263.png"
-)
-right = cv2.imread(
-    "/home/sanchit/Workspace/clutterbot/habitat_small_baseline/bot_data/right/camera_1_frame_1707214782.0682263.png"
-)
-
 ## draw epipolar lines on the left image
 
 
-def compute_fundamental_matrix(K1, K2, R, t):
-    E = np.cross(t, R)
-    F = np.linalg.inv(K2).T @ E @ np.linalg.inv(K1)
-    return F
-
-
-# Function to draw epipolar lines on the second image
-# def draw_epipolar_lines(img1, img2, F, pts1):
-#     h, w = img1.shape[:2]
-#     lines2 = cv2.computeCorrespondEpilines(pts1.reshape(-1, 1, 2), 1, F)
-#     lines2 = lines2.reshape(-1, 3)
-
-#     img2_with_lines = img2.copy()
-#     for line in lines2:
-#         color = tuple(np.random.randint(0, 255, 3).tolist())
-#         x0, y0, x1, y1 = map(
-#             int, [0, -line[2] / line[1], w, -(line[2] + line[0] * w) / line[1]]
-#         )
-#         img2_with_lines = cv2.line(img2_with_lines, (x0, y0), (x1, y1), color, 1)
-#     cv2.circle(img1, (pts1[0], pts1[1]), 3, (0, 0, 255), -1)
-#     plt.imshow(np.hstack([img1[:, :, ::-1], img2_with_lines[:, :, ::-1]]))
-#     plt.show()
-#     return img2_with_lines
-
-
-def draw_epipolar_lines(event, x, y, flags, param):
+def draw_epipolar_lines(event, x, y, flags, params):
     if event == cv2.EVENT_LBUTTONDOWN:
-        new_K_left, new_K_right, F = param
+        left, right = params
         pts1 = np.array([[x, y]])
 
         # Draw epipolar lines on the right image
-        img2_with_lines = draw_epipolar_lines_on_right(right, F, pts1)
+        img2_with_lines = draw_epipolar_lines_on_right(right, pts1)
         img1 = left.copy()
         cv2.circle(img1, (pts1[0, 0], pts1[0, 1]), 3, (0, 0, 255), -1)
         cv2.imshow("images", np.hstack([img1, img2_with_lines]))
@@ -56,73 +24,136 @@ def draw_epipolar_lines(event, x, y, flags, param):
         # Display the images side by side
 
 
-def draw_epipolar_lines_on_right(img2, F, pts1_undistorted):
-    h, w = img2.shape[:2]
-    lines2 = cv2.computeCorrespondEpilines(pts1_undistorted.reshape(-1, 1, 2), 1, F)
-    lines2 = lines2.reshape(-1, 3)
+def draw_epipolar_lines_on_right(img2, pts1_undistorted):
 
+    # draw epipolar lines in rectified image, this will be along the same row as the point in the left image
     img2_with_lines = img2.copy()
-    for line in lines2:
-        color = tuple(np.random.randint(0, 255, 3).tolist())
-        x0, y0, x1, y1 = map(
-            int, [0, -line[2] / line[1], w, -(line[2] + line[0] * w) / line[1]]
+    for pt in pts1_undistorted:
+        cv2.line(
+            img2_with_lines,
+            (0, pt[1]),
+            (img2_with_lines.shape[1], pt[1]),
+            (0, 255, 0),
+            1,
         )
-        img2_with_lines = cv2.line(img2_with_lines, (x0, y0), (x1, y1), color, 2)
-
     return img2_with_lines
+
+    # h, w = img2.shape[:2]
+    # lines2 = cv2.computeCorrespondEpilines(pts1_undistorted.reshape(-1, 1, 2), 1, F)
+    # lines2 = lines2.reshape(-1, 3)
+
+    # img2_with_lines = img2.copy()
+    # for line in lines2:
+    #     color = tuple(np.random.randint(0, 255, 3).tolist())
+    #     x0, y0, x1, y1 = map(
+    #         int, [0, -line[2] / line[1], w, -(line[2] + line[0] * w) / line[1]]
+    #     )
+    #     img2_with_lines = cv2.line(img2_with_lines, (x0, y0), (x1, y1), color, 2)
+
+    # return img2_with_lines
+
+
+def rectify_images(
+    left_image, right_image, K_left, D_left, K_right, D_right, R, T, image_size
+):
+    left_R, right_R, left_P, right_P, Q = cv2.fisheye.stereoRectify(
+        K_left,
+        D_left,
+        K_right,
+        D_right,
+        image_size[::-1],
+        R,
+        T,
+        flags=cv2.CALIB_ZERO_DISPARITY,
+        fov_scale=1,
+        balance=0.0,
+    )
+
+    left_map_x, left_map_y = cv2.fisheye.initUndistortRectifyMap(
+        K=K_left,
+        D=D_left,
+        R=left_R,
+        P=left_P,
+        size=image_size[::-1],
+        m1type=cv2.CV_32FC1,
+    )
+
+    right_map_x, right_map_y = cv2.fisheye.initUndistortRectifyMap(
+        K=K_right,
+        D=D_right,
+        R=right_R,
+        P=right_P,
+        size=image_size[::-1],
+        m1type=cv2.CV_32FC1,
+    )
+    left_rect = cv2.remap(left_image, left_map_x, left_map_y, cv2.INTER_LINEAR)
+    right_rect = cv2.remap(right_image, right_map_x, right_map_y, cv2.INTER_LINEAR)
+    return left_rect, right_rect
 
 
 if __name__ == "__main__":
-    K_left = np.asarray(
-        [
-            [415.81468891, 0.0, 414.94026509],
-            [0.0, 416.00958101, 346.26848797],
-            [0.0, 0.0, 1.0],
-        ]
-    ).reshape(3, 3)
-    D_left = np.asarray([-0.05114882, 0.03373574, -0.03893983, 0.01327103]).reshape(
-        4, 1
+    left = cv2.imread(
     )
-    new_K_left = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
-        K_left, D_left, (852, 640), np.eye(3), balance=1.0
-    )
-    map1_left, map2_left = cv2.fisheye.initUndistortRectifyMap(
-        K_left, D_left, np.eye(3), new_K_left, (852, 640), cv2.CV_16SC2
-    )
-    K_right = np.asarray(
-        [
-            [410.71753775, 0.0, 399.23367331],
-            [0.0, 410.8432021, 297.35806696],
-            [0.0, 0.0, 1.0],
-        ]
-    ).reshape(3, 3)
-    D_right = np.asarray([-0.04996972, 0.03487752, -0.037981, 0.01261172]).reshape(4, 1)
-    new_K_right = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
-        K_right, D_right, (852, 640), np.eye(3), balance=1.0
-    )
-    map1_right, map2_right = cv2.fisheye.initUndistortRectifyMap(
-        K_right, D_right, np.eye(3), new_K_right, (852, 640), cv2.CV_16SC2
+    right = cv2.imread(
     )
 
-    T = np.array([-0.12621615, -0.0043145, -0.00415989])
-    R = np.array(
+    K_left = np.asarray(
         [
-            [0.9986176, 0.0297274, 0.0433487],
-            [-0.0317493, 0.9984031, 0.0467245],
-            [-0.0418905, -0.0480362, 0.9979668],
+            [407.84422822, 0.0, 415.60713165],
+            [0.0, 407.69391138, 344.0302208],
+            [0.0, 0.0, 1.0],
         ]
+    ).reshape(3, 3)
+    d_left = np.asarray([-0.02332444, -0.01839451, 0.00901099, -0.00230693]).reshape(
+        4, 1
     )
-    F = compute_fundamental_matrix(new_K_left, new_K_right, R, T)
+
+    K_right = np.asarray(
+        [
+            [407.03636678, 0.0, 399.33632963],
+            [0.0, 406.55630645, 295.28552185],
+            [0.0, 0.0, 1.0],
+        ]
+    ).reshape(3, 3)
+    d_right = np.asarray([-0.02898533, -0.00643433, -0.00255016, 0.0013462]).reshape(
+        4, 1
+    )
+    R = np.asarray(
+        [
+            [0.9979929, 0.0242555, 0.0584955],
+            [-0.0270840, 0.9984774, 0.0480562],
+            [
+                -0.0572408,
+                -0.0495440,
+                0.9971303,
+            ],
+        ]
+    ).reshape(3, 3)
+    T = np.asarray([-0.11881959, -0.00348413, -0.00431191])
+
+    ## invert in this case
+    R_t = np.hstack([R, T.reshape(3, 1)])
+    R_t = np.vstack([R_t, [0, 0, 0, 1]])
+
+    R_t_ = np.linalg.inv(R_t)
+    R = R_t_[:3, :3]
+    T = R_t_[:3, 3]
+
+    image_size = [640, 852]
+    left_rect, right_rect = rectify_images(
+        left, right, K_left, d_left, K_right, d_right, R, T, image_size
+    )
+    plt.imshow(np.hstack([left_rect[:, :, ::-1], right_rect[:, :, ::-1]]))
+    plt.show()
     ## mouse callback for the left image to draw epipolar lines on the right image
     while True:
         cv2.namedWindow("Left Image")
-        cv2.setMouseCallback("Left Image", draw_epipolar_lines, (K_left, K_right, F))
+        cv2.setMouseCallback("Left Image", draw_epipolar_lines, (left_rect, right_rect))
 
         # Display the left image
-        cv2.imshow("Left Image", left)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        cv2.imshow("Left Image", left_rect)
+        if cv2.waitKey(0) == ord("q"):
+            cv2.destroyAllWindows()
             break
 
 # draw_epipolar_lines(left, right, F, np.array([248, 311]))
