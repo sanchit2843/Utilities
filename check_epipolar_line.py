@@ -51,6 +51,7 @@ def draw_epipolar_lines(event, x, y, flags, param):
         cv2.circle(img1, (pts1[0, 0], pts1[0, 1]), 3, (0, 0, 255), -1)
         cv2.imshow("images", np.hstack([img1, img2_with_lines]))
         cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
         # Display the images side by side
 
@@ -115,12 +116,13 @@ if __name__ == "__main__":
     ## mouse callback for the left image to draw epipolar lines on the right image
     while True:
         cv2.namedWindow("Left Image")
-        cv2.setMouseCallback(
-            "Left Image", draw_epipolar_lines, (new_K_left, new_K_right, F)
-        )
+        cv2.setMouseCallback("Left Image", draw_epipolar_lines, (K_left, K_right, F))
 
         # Display the left image
         cv2.imshow("Left Image", left)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
 # draw_epipolar_lines(left, right, F, np.array([248, 311]))
